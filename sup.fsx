@@ -14,22 +14,24 @@ let system = ActorSystem.Create("Gossip")
 
 
 
-let topology = "line"
+let topology = "full"
 let protocol = "gossip"
 
-let mutable numNodes = 1000
+let mutable numNodes = 100000
 let numResend = 10
 
-let a = System.Random(1)
+
 type Message = 
-    | ReportMsgRecieved of string
-    | Result of double * double
-    | RecordStartTime of int
-    | RecordNumPeople of int
-    | Initialize of IActorRef []
-    | StartGossip of string
-    | StartPushSum of double
-    | ComputePushSum of double * double * double
+    |Initailize of IActorRef[]
+    |StartGossip of String
+    |ReportMsgRecvd of String
+    |StartPushSum of Double
+    |ComputePushSum of Double * Double * Double
+    |Result of Double * Double
+    |RecordStartTime of int
+    |RecordNumPeople of int
+
+let rnd = System.Random(1)
 
 let Listener (mailbox:Actor<_>) = 
     let mutable msgRecieved = 0 
@@ -38,11 +40,10 @@ let Listener (mailbox:Actor<_>) =
     let rec loop() = actor {
             let! message = mailbox.Receive()
             match message with
-                | ReportMsgRecieved(str)->
+                | ReportMsgRecvd str->
                     let endTime = System.DateTime.Now.TimeOfDay.Milliseconds
                     msgRecieved <- msgRecieved + 1
-                    
-                    if(msgRecieved = numPeople) then
+                    if msgRecieved = numPeople then
                         printfn "Time of convergence is %d ms" (endTime - startTime)
                         Environment.Exit 0
 
@@ -70,62 +71,56 @@ let Node (listener : ICanTell) (numResend: int) (nodeNum: int)(mailBox:Actor<_>)
    
         let mutable  neighbours:IActorRef[]=[||]
         let mutable numMsgHeard = 0
-        let mutable sum = nodeNum |> double
+        let mutable sum = nodeNum |> float
         let mutable weight = 1.0
         let mutable termRound = 1
 
         let rec loop() = actor {
             let! message = mailBox.Receive()
             match message with
-                | Initialize(actorRef)->
+                | Initailize(actorRef)->
                     neighbours <- actorRef
                     
                     // neighbours|> Seq.iter (fun x -> printf "Neighbours is %O \n " x)
                     
                 |  StartGossip(msg) -> 
-                    numMsgHeard<- numMsgHeard + 1
+                    numMsgHeard<- numMsgHeard+1
                     if(numMsgHeard = 10) then
-                        listener <! ReportMsgRecieved(msg)
+                        listener <! ReportMsgRecvd(msg)
                     // printfn "numMsgHeard is %i" numMsgHeard
                     if (numMsgHeard < 100) then
                        //neighbours|> Seq.iter (fun x -> printf "Neighbours is %O \n" x)
-                       let a = System.Random()
-                       let leader = a.Next(0,neighbours.Length) // check
+                       let leader = rnd.Next(0,neighbours.Length) // check
                        neighbours.[leader] <! StartGossip(msg)
 
                 | StartPushSum(delta) ->
-                    let leader = a.Next(0,neighbours.Length)
+                    let leader = rnd.Next(0,neighbours.Length)
                     sum <- sum /2.0 
                     weight <- weight / 2.0
                     neighbours.[leader] <! ComputePushSum(sum, weight, delta)
 
 
 
-                | ComputePushSum(s:double, w, delta) ->
+                | ComputePushSum(s:float, w, delta) ->
                     let newSum = sum + s
                     let newWeight = weight + w
                     let finalSum = ((sum/weight) - (newSum/newWeight)) |> abs
                     if(finalSum > delta) then 
-                        termRound <- 0
-                        sum <- sum + s
-                        weight <- weight + w
-
-                        sum <- sum /2.0
-                        weight<- weight / 2.0
-
-                        let a = System.Random(1)
-                        let leader = a.Next(0,neighbours.Length)
+                        termRound <-0
+                        sum <- sum+s
+                        weight <- weight+w
+                        sum <- sum/2.0
+                        weight<- weight/2.0
+                        let leader = rnd.Next(0,neighbours.Length)
                         neighbours.[leader] <! ComputePushSum(sum, weight, delta)
-
                     elif (termRound >=3) then
                         listener <! Result(sum,weight)
 
                     else 
-                        sum <- sum /2.0
-                        weight<- weight / 2.0
-                        termRound <- termRound + 1
-                        let a = System.Random(1)
-                        let leader = a.Next(0, neighbours.Length)
+                        sum <- sum/2.0
+                        weight<- weight/2.0
+                        termRound <- termRound+1
+                        let leader = rnd.Next(0, neighbours.Length)
                         neighbours.[leader] <! ComputePushSum(sum, weight, delta)
                         
                     
@@ -144,11 +139,10 @@ match topology  with
         for i in [0..numNodes-1] do
             finalArr.[i] <- Node listener 10 (i+1) |> spawn system ("Node" + string(i))
         for i in [0..numNodes-1] do 
-            finalArr.[i] <! Initialize(finalArr)
-        let leader = a.Next(0,numNodes)
+            finalArr.[i] <! Initailize(finalArr)
+        let leader = rnd.Next(0,numNodes)
         if(protocol = "gossip") then
             listener <! RecordNumPeople(numNodes)
-            // let time = DateTimeOffset.Now.ToUnixTimeMilliseconds() |> int
             listener <! RecordStartTime(System.DateTime.Now.TimeOfDay.Milliseconds)
             printfn "Starting protocol Gossip!"
             finalArr.[leader]<! StartGossip("Hello")
@@ -177,8 +171,8 @@ match topology  with
             )
         for i in [0..numNodes-1] do    
             neighbours<-nei |> List.toArray
-            finalArr.[i]<!Initialize(neighbours)             
-        let leader = a.Next(0,numNodes)
+            finalArr.[i]<!Initailize(neighbours)             
+        let leader = rnd.Next(0,numNodes)
         if(protocol ="gossip")then
             listener<!RecordNumPeople(numNodes)
             listener<!RecordStartTime(System.DateTime.Now.TimeOfDay.Milliseconds)
@@ -190,7 +184,6 @@ match topology  with
             printfn "Starting PushSum for line"
             finalArr.[leader]<!StartPushSum(10.0 ** -10.0)        
     |_-> ()
-
 
 System.Console.ReadLine() |> ignore            
             
