@@ -36,5 +36,33 @@ open System
 //     printfn "fib 30: %i" (duration ( fun() -> fib 30 ))
 
 // main()
-let milliseconds = DateTimeOffset.Now.ToUnixTimeMilliseconds();
-printfn "TIme is % i" milliseconds
+// let milliseconds = DateTimeOffset.Now.ToUnixTimeMilliseconds();
+// printfn "TIme is % i" milliseconds
+
+
+
+
+let stopWatch = System.Diagnostics.Stopwatch.StartNew()
+
+
+
+printfn "HI"
+printfn "HI"
+printfn "HI"
+printfn "HI"
+printfn "HI"
+printfn "HI"
+printfn "HI"
+printfn "HI"
+printfn "HI"
+printfn "HI"
+printfn "HI"
+printfn "HI"
+printfn "HI"
+printfn "HI"
+printfn "HI"
+
+stopWatch.Stop()
+
+
+printfn "%f" stopWatch.Elapsed.Milliseconds()
