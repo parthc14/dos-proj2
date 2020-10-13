@@ -109,3 +109,40 @@
     // listener <! RecordStartTime(time)
     // printfn "Starting PushSum for line"
     // finalArr.[leader]<!StartPushSum(10.0 ** -10.0)
+
+
+
+
+
+
+// let mutable actorList: IActorRef list = []
+
+// let k = 2
+
+// let array2D =  Array2D.create k k 0
+
+// actorList <- array2D |> Seq.cast<int> |> Seq.toList
+
+// printfn "%A" actorList
+// l |> List.iter (fun x -> printf "%d " x)
+// for i in [0..k-1] do
+//     for j in [0..k-1] do
+//         printfn "Value is %i" Array2D.get array2d i j
+
+// let k = 2
+// let array : IActorRef [,] = Array2D.zeroCreate k k
+
+// let toListList arr = 
+//     [for x in 0 .. Array2D.length1 arr - 1 ->
+//         [ for y in 0 .. Array2D.length2 arr - 1 -> arr.[x, y] ]
+//     ]
+
+
+// let arrayList = toListList array
+
+
+let arr = Array2D.zeroCreate 2 2 
+for i = 0 to 1 do  
+    for j = 0 to 1 do  
+        printf "%d " arr.[i,j]  
+    printf "\n"  
