@@ -22,7 +22,6 @@ type Message =
     | StartGossip of string
     | StartPushSum of double
     | ComputePushSum of double * double * double
-    | Dead of IActorRef 
 
 let Listener (mailbox:Actor<_>) = 
     let mutable msgRecieved = 0 
@@ -32,9 +31,10 @@ let Listener (mailbox:Actor<_>) =
             let! message = mailbox.Receive()
             match message with
                 | ReportMsgRecieved(str)->
-                
+                    
                     msgRecieved <- msgRecieved + 1
-                   
+                    
+                     
                     if (msgRecieved = numPeople) then
                         printfn "Time of convergence is %f ms" (startTime.Elapsed.TotalMilliseconds)
                         Environment.Exit 0
@@ -59,7 +59,7 @@ let Listener (mailbox:Actor<_>) =
 
 
 
-let Node (listener : IActorRef) (numResend: int) (nodeNum: int)(mailBox:Actor<_>) =
+let Node (listener : ICanTell) (numResend: int) (nodeNum: int)(mailBox:Actor<_>) =
    
         let mutable  neighbours:IActorRef[]=[||]
         let mutable numMsgHeard = 0
@@ -75,23 +75,11 @@ let Node (listener : IActorRef) (numResend: int) (nodeNum: int)(mailBox:Actor<_>
                     
                 |  StartGossip(msg) -> 
                     numMsgHeard<- numMsgHeard + 1
-                    
                     if(numMsgHeard = 10) then
-                        
                         listener <! ReportMsgRecieved(msg)
-                        printfn "Value is %A "neighbours.[nodeNum]
-                        mailBox.Self <! Dead(neighbours.[nodeNum])
-                       
-                  
-                    if (numMsgHeard < 100) then
+                    if (numMsgHeard < 1000) then
                        let leader = random.Next(0,neighbours.Length)
                        neighbours.[leader] <! StartGossip(msg)
-
-
-                | Dead(ref) ->
-                    printfn "Ref is %A" ref
-                    // neighbours <- neighbours |> Array.filter ((<>)ref)
-
 
                 | StartPushSum(delta) ->
                     let leader = random.Next(0,neighbours.Length)
@@ -155,39 +143,22 @@ if(topology = "full") then
 
 // LINE TOPOLOGY
 if(topology = "line") then
-    let finalArr = Array.zeroCreate(numNodes)
+    let nodeArray= Array.zeroCreate (numNodes+1)
     for i in [0..numNodes-1] do
-        finalArr.[i] <- Node listener 10 (i+1) |> spawn system ("Node" + string(i))
-
-    let finalList = finalArr |> Array.toList
-    let mutable  neighbours:IActorRef[]=[||]
-    let mutable nei: IActorRef list = []
-
-    [ 0 .. numNodes-1]   
-        |> List.iter (fun x ->
-            if x = 0 then
-                nei <- [ finalList.[1] ] |> List.append nei
-            elif x = numNodes-1 then 
-                nei <- [ finalList.[numNodes-2] ] |> List.append nei
-            else 
-                nei <- [ finalList.[x-1]; finalList.[x+1] ] |> List.append nei
-    )
-    
-    for i in [0..numNodes-1] do    
-        neighbours<-nei |> List.toArray
-        finalArr.[i]<!Initialize(neighbours)             
+       nodeArray.[i]<-Node listener 10 (i+1) |> spawn system ("Node" + string(i))
+    for i in [0..numNodes-1] do
+        let neighbourArray=[|nodeArray.[((i-1+numNodes)%(numNodes+1))];nodeArray.[((i+1+numNodes)%(numNodes+1))]|]
+        nodeArray.[i]<!Initialize(neighbourArray)
     let leader = random.Next(0,numNodes)
-    if(protocol = "gossip")then
+    if protocol="gossip" then
         listener<!RecordNumPeople(numNodes)
         listener<!RecordStartTime(System.Diagnostics.Stopwatch.StartNew())
         printfn "Starting Protocol Gossip"
-        finalArr.[leader]<!StartGossip("This is Line topology")
-    elif(protocol="pushsum")then
-        listener <! RecordStartTime(System.Diagnostics.Stopwatch.StartNew())
-        printfn "Starting PushSum for line"
-        finalArr.[leader]<!StartPushSum(10.0 ** -10.0)        
-    else
-        printfn "Invalid Protocol"
+        nodeArray.[leader]<!StartGossip("This is Line Topology")
+    else if protocol="pushsum" then
+        listener<!RecordStartTime(System.Diagnostics.Stopwatch.StartNew())
+        printfn "Starting Push Sum Protocol for Line"
+        nodeArray.[leader]<!StartPushSum(10.0 ** -10.0)
 
 
 if(topology = "2D") then
@@ -258,7 +229,7 @@ if(topology = "imp2D") then
         listener<!RecordStartTime(System.Diagnostics.Stopwatch.StartNew())
         printfn "Starting Gossip Protocol"
         nodes.[leader]<!StartGossip("Hello World")
-    else if protocol="push-sum" then
+    else if protocol="pushsum" then
         listener<!RecordStartTime(System.Diagnostics.Stopwatch.StartNew())
         printfn "Starting Push Sum Protocol"
         nodes.[leader]<!StartPushSum(10.0 ** -10.0)

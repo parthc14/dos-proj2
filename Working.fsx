@@ -1,194 +1,262 @@
-#if INTERACTIVE
-#time "on"
-#r "nuget: Akka.FSharp" 
-#r "nuget: Akka.TestKit" 
-#endif
+#r "nuget: Akka.FSharp"
+#r "nuget: Akka.TestKit"
 
-open System
 open Akka.Actor
-open Akka.Configuration
 open Akka.FSharp
-open System.Collections.Generic
+open System
 
-type Gossip =
-    |Initailize of IActorRef[]
-    |StartGossip of String
-    |ReportMsgRecvd of String
-    |StartPushSum of Double
-    |ComputePushSum of Double * Double * Double
-    |Result of Double * Double
-    |RecordStartTime of int
-    |RecordNumPeople of int
+let system = ActorSystem.Create("Gossip")
+let random = System.Random(1)
 
-let rnd  = System.Random(1)
+let mutable numNodes =  int(string (fsi.CommandLineArgs.GetValue 1))
+let topology = string (fsi.CommandLineArgs.GetValue 2)
+let protocol =  string (fsi.CommandLineArgs.GetValue 3)
+
+type Message = 
+    | ReportMsgRecieved of string
+    | Result of double * double
+    | RecordStartTime of Diagnostics.Stopwatch
+    | RecordNumPeople of int
+    | Initialize of IActorRef []
+    | StartGossip of string
+    | StartPushSum of double
+    | ComputePushSum of double * double * double
 
 let Listener (mailbox:Actor<_>) = 
-    let mutable msgRecieved = 0
-    let mutable startTime = 0
-    let mutable numPeople =0
-
+    let mutable msgRecieved = 0 
+    let mutable startTime = System.Diagnostics.Stopwatch.StartNew() 
+    let mutable numPeople = 0
+    // let mutable count = 0 
     let rec loop() = actor {
             let! message = mailbox.Receive()
-            match message with 
-            | ReportMsgRecvd message ->
-                let endTime = System.DateTime.Now.TimeOfDay.Milliseconds
-                msgRecieved <- msgRecieved + 1
-                if msgRecieved = numPeople then
-                    printfn "Time for convergence: %d ms" (endTime - startTime)
+            match message with
+                | ReportMsgRecieved(str)->
+                    
+                    msgRecieved <- msgRecieved + 1
+                    // count <- count + 1
+
+                    // printfn "Count Recieved is %i" count
+                    // let endTime = startTime.Stop()
+                    // msgRecieved <- msgRecieved + 1
+                    // if(msgRecieved > 1000) then
+                     
+                    if (msgRecieved = numPeople) then
+                        printfn "Here"
+                        printfn "Time of convergence is %f ms" (startTime.Elapsed.TotalMilliseconds)
+                        Environment.Exit 0
+
+                |  Result(sum,weight) -> 
+                    let endTime = startTime.Stop()
+                    printfn "Sum %f \nWeight %f \nAverage %f \n" sum weight (sum/weight)
+                    printfn "Time of convergence is %f ms" (startTime.Elapsed.TotalMilliseconds)
                     Environment.Exit 0
-           
+                  
+                | RecordStartTime(strTime) ->
+                    startTime <- System.Diagnostics.Stopwatch.StartNew()
 
-            | Result (sum,weight) ->
-                let endTime = System.DateTime.Now.TimeOfDay.Milliseconds
-                printfn "Sum = %f Weight= %f Average=%f" sum weight (sum/weight) 
-                printfn "Time for convergence: %i ms" (endTime-startTime)
-                Environment.Exit 0
+                | RecordNumPeople(noPeople) ->
+                    numPeople <- noPeople
 
-            | RecordStartTime strtTime ->
-                startTime <-strtTime
-
-            | RecordNumPeople numpeople ->
-                numPeople <-numpeople
-            | _->()
+                | _-> ()
 
             return! loop()
         }
     loop()
 
-    
-
-let Node listener numResend nodeNum (mailbox:Actor<_>)  =
-    let mutable numMsgHeard = 0 
-    let mutable  neighbours:IActorRef[]=[||]
-
-    //used for push sum
-    let mutable sum1= nodeNum |> float
-    let mutable weight = 1.0
-    let mutable termRound = 1
-
-    let rec loop() = actor {
-        let! message = mailbox.Receive()
-        match message with 
-        | Initailize aref->
-            neighbours<-aref
-
-        | StartGossip msg ->
-            numMsgHeard<- numMsgHeard+1
-            if(numMsgHeard=15) then 
-                listener <! ReportMsgRecvd(msg)
-                
-            if(numMsgHeard < 100) then
-                let index= rnd.Next(0,neighbours.Length)
-                neighbours.[index] <! StartGossip(msg)
-
-        | StartPushSum delta -> 
-            let index= rnd.Next(0,neighbours.Length)
-            sum1<- sum1/2.0
-            weight <-weight/2.0
-            neighbours.[index] <! ComputePushSum(sum1,weight,delta)
-
-        | ComputePushSum (s:float,w,delta) -> 
-            let  newsum = sum1+s
-            let newweight = weight + w
-            let cal = sum1/weight - newsum/newweight |> abs
-            if(cal >delta) then
-                termRound<- 0
-                sum1 <- sum1+s
-                weight <- weight + w
-                sum1 <- sum1/2.0
-                weight <- weight/2.0
-                let index= rnd.Next(0,neighbours.Length)
-                neighbours.[index] <! ComputePushSum(sum1,weight,delta)
-            elif (termRound>=3) then
-                listener<! Result(sum1,weight)
-            else
-                sum1<- sum1/2.0
-                weight <- weight/2.0
-                termRound<- termRound+1
-                let index= rnd.Next(0,neighbours.Length)
-                neighbours.[index] <! ComputePushSum(sum1,weight,delta)
 
 
-        | _-> ()
-
-        return! loop()
-    }
-    loop()
-
-let mutable numNodes = int(string (fsi.CommandLineArgs.GetValue 1))
-let topology = string (fsi.CommandLineArgs.GetValue 2)
-let protocol= string (fsi.CommandLineArgs.GetValue 3)
-// let numOfNodes = 10
-// let topology = "line"
-// let protocol = "gossip"
-
-
-let system = ActorSystem.Create("System")
-
-//let Props prop
-let mutable actualNumOfNodes=float(numNodes)
-
-
-numNodes = if topology="2D" || topology="imp2D" then 
-                 int(ceil((actualNumOfNodes ** 0.5) ** 2.0))
-             else
-                 numNodes
-
-let listener= 
-    Listener
-    |> spawn system "listener"
-
-match topology  with 
-    | "full"->
-        let finalArr = Array.zeroCreate(numNodes)
-        for i in [0..numNodes-1] do
-            finalArr.[i] <- Node listener 10 (i+1) |> spawn system ("Node" + string(i))
-        for i in [0..numNodes-1] do 
-            finalArr.[i] <! Initailize(finalArr)
-        let leader = rnd.Next(0,numNodes)
-        if(protocol = "gossip") then
-            listener <! RecordNumPeople(numNodes)
-            listener <! RecordStartTime(System.DateTime.Now.TimeOfDay.Milliseconds)
-            printfn "Starting protocol Gossip!"
-            finalArr.[leader]<! StartGossip("Hello")
-        elif(protocol = "pushsum") then
-            listener <! RecordStartTime(System.DateTime.Now.TimeOfDay.Milliseconds)
-            printfn "Starting protocol Gossip!"
-            finalArr.[leader]<! StartPushSum(10.0 ** -10.0)
-
-
-    | "line" ->
-        let finalArr = Array.zeroCreate(numNodes)
-        for i in [0..numNodes-1] do
-            finalArr.[i] <- Node listener 10 (i+1) |> spawn system ("Node" + string(i))
-
-        let finalList = finalArr |> Array.toList
+let Node (listener : ICanTell) (numResend: int) (nodeNum: int)(mailBox:Actor<_>) =
+   
         let mutable  neighbours:IActorRef[]=[||]
-        let mutable nei: IActorRef list = []
-        [ 0 .. numNodes-1]   
-            |> List.iter (fun x ->
-                    if x = 0 then
-                        nei <- [ finalList.[1] ] |> List.append nei
-                    elif x = numNodes-1 then 
-                        nei <- [ finalList.[numNodes-2] ] |> List.append nei
-                    else 
-                        nei <- [ finalList.[x-1]; finalList.[x+1] ] |> List.append nei
-            )
-        for i in [0..numNodes-1] do    
-            neighbours<-nei |> List.toArray
-            finalArr.[i]<!Initailize(neighbours)             
-        let leader = rnd.Next(0,numNodes)
-        if(protocol ="gossip")then
-            listener<!RecordNumPeople(numNodes)
-            listener<!RecordStartTime(System.DateTime.Now.TimeOfDay.Milliseconds)
-            printfn "Starting Protocol Gossip"
-            finalArr.[leader]<!StartGossip("This is Line topology")
+        let mutable numMsgHeard = 0
+        let mutable sum = nodeNum |> double
+        let mutable weight = 1.0
+        let mutable termRound = 1
 
-        elif(protocol="pushsum")then
-            listener <! RecordStartTime(System.DateTime.Now.TimeOfDay.Milliseconds)
-            printfn "Starting PushSum for line"
-            finalArr.[leader]<!StartPushSum(10.0 ** -10.0)        
-    |_-> ()    
+        let rec loop() = actor {
+            let! message = mailBox.Receive()
+            match message with
+                | Initialize(actorRef)->
+                    neighbours <- actorRef
+                    
+                |  StartGossip(msg) -> 
+                    numMsgHeard<- numMsgHeard + 1
+                    if(numMsgHeard = 10) then
+                        listener <! ReportMsgRecieved(msg)
+                    if (numMsgHeard < 1000) then
+                       let leader = random.Next(0,neighbours.Length)
+                       neighbours.[leader] <! StartGossip(msg)
 
-System.Console.ReadLine() |> ignore            
+                | StartPushSum(delta) ->
+                    let leader = random.Next(0,neighbours.Length)
+                    sum <- sum /2.0 
+                    weight <- weight / 2.0
+                    neighbours.[leader] <! ComputePushSum(sum, weight, delta)
+
+                | ComputePushSum(s:double, w, delta) ->
+                    let newSum = sum + s
+                    let newWeight = weight + w
+                    let finalSum = ((sum/weight) - (newSum/newWeight)) |> abs
+                    if(finalSum > delta) then 
+                        termRound <- 0
+                        sum <- sum + s
+                        weight <- weight + w
+
+                        sum <- sum /2.0
+                        weight<- weight / 2.0
+
+                        let leader = random.Next(0,neighbours.Length)
+                        neighbours.[leader] <! ComputePushSum(sum, weight, delta)
+                    elif (termRound >=3) then
+                        listener <! Result(sum,weight)
+                    else
+                        sum <- sum /2.0
+                        weight<- weight / 2.0
+                        termRound <- termRound + 1
+
+                        let leader = random.Next(0, neighbours.Length)
+                        neighbours.[leader] <! ComputePushSum(sum, weight, delta)
+                       
+                | _-> ()
+            return! loop()
+
+        }
+        loop()
+
+
+let listener = Listener |> spawn system "listener"
+
+// FULL TOPOLOGY
+if(topology = "full") then
+    let finalArr = Array.zeroCreate(numNodes)
+    for i in [0..numNodes-1] do
+        finalArr.[i] <- Node listener 10 (i+1) |> spawn system ("Node" + string(i))
+    for i in [0..numNodes-1] do 
+        finalArr.[i] <! Initialize(finalArr)
+    let leader = random.Next(0,numNodes)
+    if(protocol = "gossip") then
+        listener <! RecordNumPeople(numNodes)
+        listener <! RecordStartTime(System.Diagnostics.Stopwatch.StartNew())
+        printfn "Starting Gossip protocol"
+        finalArr.[leader]<! StartGossip("Hello")
+    elif(protocol = "pushsum") then
+        listener <! RecordStartTime(System.Diagnostics.Stopwatch.StartNew())
+        printfn "Starting Pushsum protocol"
+        finalArr.[leader]<! StartPushSum(10.0 ** -10.0)
+    else 
+        printfn "Invalid Protocol"
+
+
+// LINE TOPOLOGY
+if(topology = "line") then
+    let finalArr = Array.zeroCreate(numNodes)
+    for i in [0..numNodes-1] do
+        finalArr.[i] <- Node listener 10 (i+1) |> spawn system ("Node" + string(i))
+
+    let finalList = finalArr |> Array.toList
+    let mutable  neighbours:IActorRef[]=[||]
+    let mutable nei: IActorRef list = []
+
+    [ 0 .. numNodes-1]   
+        |> List.iter (fun x ->
+            if x = 0 then
+                nei <- [ finalList.[1] ] |> List.append nei
+            elif x = numNodes-1 then 
+                nei <- [ finalList.[numNodes-2] ] |> List.append nei
+            else 
+                nei <- [ finalList.[x-1]; finalList.[x+1] ] |> List.append nei
+    )
+    for i in [0..numNodes-1] do    
+        neighbours<-nei |> List.toArray
+        finalArr.[i]<!Initialize(neighbours)             
+    let leader = random.Next(0,numNodes)
+    if(protocol = "gossip")then
+        listener<!RecordNumPeople(numNodes)
+        listener<!RecordStartTime(System.Diagnostics.Stopwatch.StartNew())
+        printfn "Starting Protocol Gossip"
+        finalArr.[leader]<!StartGossip("This is Line topology")
+    elif(protocol="pushsum")then
+        listener <! RecordStartTime(System.Diagnostics.Stopwatch.StartNew())
+        printfn "Starting PushSum for line"
+        finalArr.[leader]<!StartPushSum(10.0 ** -10.0)        
+    else
+        printfn "Invalid Protocol"
+
+
+if(topology = "2D") then
+    let kLength = int(ceil(sqrt(float(numNodes))))
+    let newMatrix = pown kLength 2
+    let nodes = Array.zeroCreate(newMatrix)
+    let newKLength = newMatrix - 1
+    
+    for i in [0..newKLength] do
+        nodes.[i]<-Node listener 10 (i+1) |> spawn system ("Node" + string(i))
+
+    for i in [0..kLength-1] do
+        for j in [0..kLength-1] do
+            let mutable neigh:IActorRef[]=[||]
+            if j+1<kLength then
+                neigh<-(Array.append neigh [|nodes.[i*kLength+j+1]|])
+            if j-1>=0 then
+                neigh<-Array.append neigh [|nodes.[i*kLength+j-1]|]
+            if i-1>=0 then
+                neigh <-Array.append neigh [|nodes.[(i-1)*kLength+j]|]
+            if i+1<kLength then
+                neigh <-(Array.append neigh [|nodes.[(i+1)*kLength+j]|])
+            nodes.[i*kLength+j]<!Initialize(neigh)
+
+    let leader = System.Random().Next(0,newMatrix - 1)
+    
+    if protocol="gossip" then
+       listener<!RecordNumPeople(newMatrix - 1)
+       listener<!RecordStartTime(System.Diagnostics.Stopwatch.StartNew())
+       printfn "Starting Gossip Protocol"
+       nodes.[leader]<!StartGossip("Hello World")
+    else if protocol="pushsum" then
+       listener<!RecordStartTime(System.Diagnostics.Stopwatch.StartNew())
+       printfn "Starting Push Sum Protocol"
+       nodes.[leader]<!StartPushSum(10.0 ** -10.0) 
+
+
+if(topology = "imp2D") then
+    let kLength = int(ceil(sqrt(float(numNodes))))
+    let newMatrix = pown kLength 2
+   
+    let nodes = Array.zeroCreate(newMatrix)
+    printfn "New Matrix Length is %i" (newMatrix-1)
+    let newKLength = newMatrix - 1
+    for i in [0..newKLength] do
+       nodes.[i]<-Node listener 10 (i+1) |> spawn system ("Node" + string(i))
+   
+    for m in [0..kLength-1] do
+        for n in [0..kLength-1] do
+            let mutable neigh:IActorRef[]=[||]
             
+            if n+1<kLength then
+                neigh<-(Array.append neigh [|nodes.[m*kLength+n+1]|])
+            if n-1 >= 0 then
+                neigh<-Array.append neigh [|nodes.[m*kLength+n-1]|]
+            if m-1 >= 0 then
+                neigh <-Array.append neigh [|nodes.[(m-1)*kLength+n]|]
+            if m+1 < kLength then
+                neigh <- (Array.append neigh [|nodes.[(m+1)*kLength+n]|])
+           
+            let randNeigh = System.Random().Next(0, newMatrix - 1) 
+            neigh <- (Array.append neigh [|nodes.[randNeigh]|])
+            
+            nodes.[m*kLength+n]<!Initialize(neigh)
+
+    let leader = System.Random().Next(0,newMatrix - 1) 
+    if protocol="gossip" then
+        listener<!RecordNumPeople(newMatrix - 1)
+        listener<!RecordStartTime(System.Diagnostics.Stopwatch.StartNew())
+        printfn "Starting Gossip Protocol"
+        nodes.[leader]<!StartGossip("Hello World")
+    else if protocol="push-sum" then
+        listener<!RecordStartTime(System.Diagnostics.Stopwatch.StartNew())
+        printfn "Starting Push Sum Protocol"
+        nodes.[leader]<!StartPushSum(10.0 ** -10.0)
+
+
+
+System.Console.ReadLine() |> ignore

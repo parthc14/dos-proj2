@@ -1,4 +1,3 @@
-
 #r "nuget: Akka.FSharp"
 #r "nuget: Akka.TestKit"
 
@@ -22,20 +21,27 @@ type Message =
     | StartGossip of string
     | StartPushSum of double
     | ComputePushSum of double * double * double
-    | Dead of IActorRef 
 
 let Listener (mailbox:Actor<_>) = 
     let mutable msgRecieved = 0 
     let mutable startTime = System.Diagnostics.Stopwatch.StartNew() 
     let mutable numPeople = 0
+    // let mutable count = 0 
     let rec loop() = actor {
             let! message = mailbox.Receive()
             match message with
                 | ReportMsgRecieved(str)->
-                
+                    
                     msgRecieved <- msgRecieved + 1
-                   
+                    // count <- count + 1
+
+                    // printfn "Count Recieved is %i" count
+                    // let endTime = startTime.Stop()
+                    // msgRecieved <- msgRecieved + 1
+                    // if(msgRecieved > 1000) then
+                     
                     if (msgRecieved = numPeople) then
+                        printfn "Here"
                         printfn "Time of convergence is %f ms" (startTime.Elapsed.TotalMilliseconds)
                         Environment.Exit 0
 
@@ -59,7 +65,7 @@ let Listener (mailbox:Actor<_>) =
 
 
 
-let Node (listener : IActorRef) (numResend: int) (nodeNum: int)(mailBox:Actor<_>) =
+let Node (listener : ICanTell) (numResend: int) (nodeNum: int)(mailBox:Actor<_>) =
    
         let mutable  neighbours:IActorRef[]=[||]
         let mutable numMsgHeard = 0
@@ -75,23 +81,11 @@ let Node (listener : IActorRef) (numResend: int) (nodeNum: int)(mailBox:Actor<_>
                     
                 |  StartGossip(msg) -> 
                     numMsgHeard<- numMsgHeard + 1
-                    
                     if(numMsgHeard = 10) then
-                        
                         listener <! ReportMsgRecieved(msg)
-                        printfn "Value is %A "neighbours.[nodeNum]
-                        mailBox.Self <! Dead(neighbours.[nodeNum])
-                       
-                  
-                    if (numMsgHeard < 100) then
+                    if (numMsgHeard < 70) then
                        let leader = random.Next(0,neighbours.Length)
                        neighbours.[leader] <! StartGossip(msg)
-
-
-                | Dead(ref) ->
-                    printfn "Ref is %A" ref
-                    // neighbours <- neighbours |> Array.filter ((<>)ref)
-
 
                 | StartPushSum(delta) ->
                     let leader = random.Next(0,neighbours.Length)
@@ -172,7 +166,6 @@ if(topology = "line") then
             else 
                 nei <- [ finalList.[x-1]; finalList.[x+1] ] |> List.append nei
     )
-    
     for i in [0..numNodes-1] do    
         neighbours<-nei |> List.toArray
         finalArr.[i]<!Initialize(neighbours)             
@@ -230,6 +223,7 @@ if(topology = "imp2D") then
     let newMatrix = pown kLength 2
    
     let nodes = Array.zeroCreate(newMatrix)
+    printfn "New Matrix Length is %i" (newMatrix-1)
     let newKLength = newMatrix - 1
     for i in [0..newKLength] do
        nodes.[i]<-Node listener 10 (i+1) |> spawn system ("Node" + string(i))
